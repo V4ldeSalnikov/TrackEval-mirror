@@ -10,14 +10,18 @@ class MaxSim(_BaseMetric):
 
     def __init__(self):
         super().__init__()
+        self.integer_fields = ['MaxSim_Detections']
         self.float_fields = ['MaxSim']
-        self.fields = self.float_fields
+        self.fields = self.float_fields + self.integer_fields
         self.summary_fields = self.fields
 
     @_timing.time
     def eval_sequence(self, data):
         """Calculates MaxSim metric for one sequence"""
-        res = {'MaxSim': 0.0}
+        res = {
+            'MaxSim': 0.0,
+            'MaxSim_Detections': 0
+        }
 
         # if no detection found
         if data['num_tracker_dets'] == 0 or data['num_gt_dets'] == 0:
@@ -31,22 +35,44 @@ class MaxSim(_BaseMetric):
                 max_similarity = max(max_similarity, timestep_max)
 
         res['MaxSim'] = max_similarity
+        res['MaxSim_Detections'] = data['num_tracker_dets']
         return res
 
     def combine_sequences(self, all_res):
         """Combines metrics across all sequences by averaging"""
         res = {}
         res['MaxSim'] = np.mean([v['MaxSim'] for v in all_res.values()])
+        res['MaxSim_Detections'] = self._combine_sum(all_res, 'MaxSim_Detections')
         return res
 
     def combine_classes_class_averaged(self, all_res):
-        """Combines metrics across all classes by averaging"""
+        """Combines metrics across all classes by averaging over the class values """
         res = {}
-        res['MaxSim'] = np.mean([v['MaxSim'] for v in all_res.values()])
+
+        valid_classes = [v for v in all_res.values() if v['MaxSim_Detections'] > 0]
+        if len(valid_classes) > 0:
+            res['MaxSim'] = np.mean([v['MaxSim'] for v in valid_classes])
+        else:
+            res['MaxSim'] = 0.0
+
+        res['MaxSim_Detections'] = self._combine_sum(all_res, 'MaxSim_Detections')
+
         return res
 
     def combine_classes_det_averaged(self, all_res):
-        """placeholder that combines metrics across all classes by averaging. TODO: reimplement correctly"""
+        """Combines metrics across all classes weighted by averaging over the detection values"""
+        res = {}
+        total_detections = self._combine_sum(all_res, 'MaxSim_Detections')
+        res['MaxSim_Detections'] = total_detections
 
-        return 0
+        #Calculatiuon of weighted average
+        if total_detections > 0:
+            weighted_sum = sum([all_res[k]['MaxSim'] * all_res[k]['MaxSim_Detections']
+                                for k in all_res.keys()])
+            res['MaxSim'] = weighted_sum / total_detections
+        else:
+            res['MaxSim'] = 0.0
+
+
+        return res
 
